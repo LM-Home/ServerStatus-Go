@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -320,11 +319,10 @@ func getNetBytes() (rx, tx int64, err error) {
 // diskIOMonitor 磁盘IO监测
 func diskIOMonitor() {
 	interval := time.Duration(*Interval) * time.Second
-	excludeProcs := map[string]bool{"bash": true}
 
 	for {
 		// 第一次采样
-		first, err := getProcessIO()
+		first, err := disk.IOCounters()
 		if err != nil {
 			log.Println("磁盘 IO 监测错误:", err)
 			time.Sleep(interval)
@@ -334,7 +332,7 @@ func diskIOMonitor() {
 		time.Sleep(interval)
 
 		// 第二次采样
-		second, err := getProcessIO()
+		second, err := disk.IOCounters()
 		if err != nil {
 			log.Println("磁盘 IO 监测错误:", err)
 			time.Sleep(interval)
@@ -343,16 +341,13 @@ func diskIOMonitor() {
 
 		// 计算差值
 		var read, write int64
-		for pid, io1 := range first {
-			io2, ok := second[pid]
-			if !ok || io1.Name != io2.Name {
+		for device, ioFir := range first {
+			ioSec, ok := second[device]
+			if !ok || ioFir.Name != ioSec.Name {
 				continue
 			}
-			if excludeProcs[io1.Name] {
-				continue
-			}
-			read += io2.Read - io1.Read
-			write += io2.Write - io1.Write
+			read += int64(ioSec.ReadBytes  - ioFir.ReadBytes )
+			write += int64(ioSec.WriteBytes  - ioFir.WriteBytes)
 		}
 
 		diskIO.Lock()
@@ -362,55 +357,6 @@ func diskIOMonitor() {
 	}
 }
 
-// 进程IO信息
-type procIO struct {
-	Name  string
-	Read  int64
-	Write int64
-}
-
-// getProcessIO 获取所有进程的IO信息
-func getProcessIO() (map[string]procIO, error) {
-	pids, err := filepath.Glob("/proc/[0-9]*")
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[string]procIO)
-	for _, pidPath := range pids {
-		pid := filepath.Base(pidPath)
-		ioPath := filepath.Join(pidPath, "io")
-		commPath := filepath.Join(pidPath, "comm")
-
-		// 读取进程名
-		comm, err := os.ReadFile(commPath)
-		if err != nil {
-			continue
-		}
-		name := strings.TrimSpace(string(comm))
-
-		// 读取IO信息
-		ioData, err := os.ReadFile(ioPath)
-		if err != nil {
-			continue
-		}
-
-		// 解析read_bytes和write_bytes
-		var read, write int64
-		lines := strings.Split(string(ioData), "\n")
-		for _, line := range lines {
-			if strings.HasPrefix(line, "read_bytes:") {
-				read, _ = strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(line, "read_bytes:")), 10, 64)
-			} else if strings.HasPrefix(line, "write_bytes:") && !strings.Contains(line, "cancelled") {
-				write, _ = strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(line, "write_bytes:")), 10, 64)
-			}
-		}
-
-		result[pid] = procIO{Name: name, Read: read, Write: write}
-	}
-
-	return result, nil
-}
 
 // 连接服务器并发送状态数据
 func connect() {
@@ -927,7 +873,7 @@ func getCPUTime() (cpuTime, error) {
 
 	parts := strings.Fields(string(data))
 	if len(parts) < 5 {
-		return cpuTime{}, fmt.Errorf("invalid cpu stat")
+		return cpuTime{}, fmt.Errorf("CPU时间数据格式错误")
 	}
 
 	user, _ := strconv.ParseUint(parts[1], 10, 64)
