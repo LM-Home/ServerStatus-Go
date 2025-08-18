@@ -1,4 +1,4 @@
-# serviceStatus
+# ServerStatus-Go
 
 适配 https://github.com/cppla/ServerStatus 的 golang 客户端。
 
