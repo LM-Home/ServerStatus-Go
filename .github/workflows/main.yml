@@ -39,12 +39,12 @@ jobs:
           rm go.mod
           go mod init ServerStatus
           go mod tidy
-          GOOS=linux GOARCH=386 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o serviceStatus-linux-386
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o serviceStatus-linux-amd64
-          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o serviceStatus-linux-arm64
-          GOOS=freebsd GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o serviceStatus-freebsd-amd64
+          GOOS=linux GOARCH=386 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o serverStatus-linux-386
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o serverStatus-linux-amd64
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o serverStatus-linux-arm64
+          GOOS=freebsd GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o serverStatus-freebsd-amd64
           echo "DIR_NAME=$PWD" >> $GITHUB_ENV
-          echo ${{ steps.bump.outputs.new_tag }} >> serviceStatus-version
+          echo ${{ steps.bump.outputs.new_tag }} >> serverStatus-version
 
       - name: Upload Go to Release
         uses: softprops/action-gh-release@v2
@@ -52,7 +52,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.bump.outputs.new_tag }}
-          files: ${{ env.DIR_NAME }}/serviceStatus-*
+          files: ${{ env.DIR_NAME }}/serverStatus-*
 
       - name: Delete Workflow Runs
         uses: Mattraks/delete-workflow-runs@v2
