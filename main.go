@@ -18,6 +18,7 @@ import (
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
+	"github.com/shirou/gopsutil/v3/disk"
 )
 
 var (
@@ -32,7 +33,9 @@ var (
 	CT                     = flag.String("ct", "ct.tz.cloudcpp.com", "CT 探针地址")
 	CM                     = flag.String("cm", "cm.tz.cloudcpp.com", "CM 探针地址")
 	ProbePort              = flag.Int("probePort", 80, "探针端口")
+	CachedFs               = make(map[string]struct{})
 	ProbeProtocolPrefer    = flag.String("proto", "ipv4", "探针协议偏好(ipv4或ipv6)")
+	ValidFs                = []string{"ext4", "ext3", "ext2", "reiserfs", "jfs", "btrfs", "fuseblk", "zfs", "simfs", "ntfs", "fat32", "exfat", "xfs", "apfs"}
 	PingPacketHistoryLen   = 64
 	OnlinePacketHistoryLen = 64
 	timeCU, timeCT, timeCM int
@@ -70,10 +73,10 @@ var (
 // MonitorServer 自定义服务器监控数据
 type MonitorServer struct {
 	Type         string  `json:"type"`
-	DnsTime      int     `json:"dnsTime"`
-	ConnectTime  int     `json:"connectTime"`
-	DownloadTime int     `json:"downloadTime"`
-	OnlineRate   float64 `json:"onlineRate"`
+	DnsTime      int     `json:"dns_time"`
+	ConnectTime  int     `json:"connect_time"`
+	DownloadTime int     `json:"download_time"`
+	OnlineRate   float64 `json:"online_rate"`
 	host         string
 	interval     int
 	stop         chan struct{}
@@ -875,21 +878,25 @@ func getMemory() (total, used, swapTotal, swapFree uint64) {
 }
 
 func getDisk() (total, used uint64) {
-	cmd := exec.Command("df", "-Tlm", "--total", "-t", "ext4", "-t", "ext3", "-t", "ext2", "-t", "reiserfs", "-t", "jfs", "-t", "ntfs", "-t", "fat32", "-t", "btrfs", "-t", "fuseblk", "-t", "zfs", "-t", "simfs", "-t", "xfs")
-	output, err := cmd.Output()
-	if err != nil {
-		return 0, 0
+
+	diskList, _ := disk.Partitions(false)
+	devices := make(map[string]struct{})
+	for _, disk := range diskList {
+		_, ok := devices[disk.Device]
+		if !ok && checkValidFs(disk.Fstype) {
+			CachedFs[disk.Mountpoint] = struct{}{}
+			devices[disk.Device] = struct{}{}
+		}
 	}
 
-	lines := strings.Split(string(output), "\n")
-	if len(lines) < 1 {
-		return 0, 0
-	}
-	lastLine := lines[len(lines)-2] // 最后一行是总计
-	parts := strings.Fields(lastLine)
-	if len(parts) >= 4 {
-		total, _ = strconv.ParseUint(parts[2], 10, 64)
-		used, _ = strconv.ParseUint(parts[3], 10, 64)
+	for k := range CachedFs {
+		usage, err := disk.Usage(k)
+		if err != nil {
+			delete(CachedFs, k)
+			continue
+		}
+		total += usage.Total / 1024.0 / 1024.0
+		used += usage.Used / 1024.0 / 1024.0
 	}
 	return total, used
 }
@@ -954,6 +961,15 @@ func getLoad() (load1, load5, load15 float64) {
 		load15, _ = strconv.ParseFloat(parts[2], 64)
 	}
 	return load1, load5, load15
+}
+
+func checkValidFs(name string) bool {
+	for _, v := range ValidFs {
+		if strings.ToLower(name) == v {
+			return true
+		}
+	}
+	return false
 }
 
 func checkNetwork(version int) bool {
