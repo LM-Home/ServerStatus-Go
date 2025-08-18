@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -413,7 +414,8 @@ func getProcessIO() (map[string]procIO, error) {
 
 // 连接服务器并发送状态数据
 func connect() {
-	log.Println("连接:", *Server, ":", *Port)
+	src := fmt.Sprintf("连接:%s:%d", *Server, *Port)
+	log.Println(src)
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort(*Server, strconv.Itoa(*Port)), 30*time.Second)
 	if err != nil {
 		log.Println("连接失败:", err)
@@ -507,9 +509,10 @@ func handleMonitorConfig(conn net.Conn) (int, error) {
 			}
 
 			ms := &MonitorServer{
-				Type:     cfg.Type,
-				host:     cfg.Host,
-				interval: cfg.Interval,
+				Type: cfg.Type,
+				host: cfg.Host,
+				// interval: cfg.Interval,
+				interval: 2,
 				stop:     make(chan struct{}),
 			}
 			monitorServer.servers[cfg.Name] = ms
@@ -524,8 +527,8 @@ func handleMonitorConfig(conn net.Conn) (int, error) {
 func monitorWorker(name string, ms *MonitorServer) {
 	lostCount := 0
 	history := make([]int, 0, OnlinePacketHistoryLen)
-	usrInterval := time.Duration(ms.interval) * time.Second
-	interval := usrInterval // 初始间隔
+	userInterval := time.Duration(ms.interval) * time.Second
+	interval := userInterval // 初始间隔
 
 	for {
 		select {
@@ -548,7 +551,7 @@ func monitorWorker(name string, ms *MonitorServer) {
 				lostCount--
 			}
 			history = history[1:]
-			interval = usrInterval * 5 // 每次检查后增加间隔
+			interval = userInterval * 60 // 每次检查后增加间隔
 		}
 
 		// 执行监控检查
@@ -609,46 +612,34 @@ func monitorHTTP(protocol, host string) (success bool, dnsTime, connectTime, dow
 	defer conn.Close()
 	connectTime = int(time.Since(start).Milliseconds())
 
-	// HTTPS握手
-	var tlsConn *tls.Conn
-	if protocol == "https" {
-		startTLS := time.Now()
-		tlsConn = tls.Client(conn, &tls.Config{
-			ServerName:         address,
-			InsecureSkipVerify: true, // 跳过证书验证，与Python版本保持一致
-		})
-		if err := tlsConn.Handshake(); err != nil {
-			return false, dnsTime, connectTime, 0
-		}
-		connectTime += int(time.Since(startTLS).Milliseconds())
+	// 创建一个 HTTP 客户端
+	client := &http.Client{
+		// 设置超时，包括建立连接、发送请求和接收响应的总时间
+		Timeout: 5 * time.Second,
+		// 使用自定义的 Transport，以复用 net.DialTimeout 的能力
+		Transport: &http.Transport{
+			// 配置 TLS，通过 InsecureSkipVerify: true 来跳过证书验证
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			DialContext: (&net.Dialer{
+				Timeout: 5 * time.Second,
+			}).DialContext,
+		},
 	}
 
-	// 下载时间
-	start = time.Now()
-	req := fmt.Sprintf("GET / HTTP/1.2\r\nHost:%s\r\nUser-Agent:ServerStatus/goclient\r\nConnection:close\r\n\r\n", address)
-	var writer io.Writer = conn
-	if protocol == "https" {
-		writer = tlsConn
-	}
-	if _, err := writer.Write([]byte(req)); err != nil {
-		return false, dnsTime, connectTime, 0
-	}
+	// 构造完整的 URL
+	url := host
 
-	// 读取响应
-	buf := make([]byte, 4096)
-	_, err = (io.Reader(conn)).Read(buf)
-	if err != nil && err != io.EOF {
+	// 发送 GET 请求
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Printf("请求失败: %v\n", err)
 		return false, dnsTime, connectTime, 0
 	}
+	defer resp.Body.Close()
 
-	// 验证状态码
-	resp := string(buf)
-	statusLine := strings.Split(resp, "\r\n")[0]
-	statusParts := strings.Split(statusLine, " ")
-	if len(statusParts) < 2 {
-		return false, dnsTime, connectTime, 0
-	}
-	code := statusParts[1]
+	// 从响应中获取状态码
+	statusCode := resp.StatusCode
+	code := strconv.Itoa(statusCode)
 	validCodes := map[string]bool{"200": true, "204": true, "301": true, "302": true, "401": true}
 	if !validCodes[code] {
 		return false, dnsTime, connectTime, 0
