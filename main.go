@@ -511,8 +511,7 @@ func handleMonitorConfig(conn net.Conn) (int, error) {
 			ms := &MonitorServer{
 				Type: cfg.Type,
 				host: cfg.Host,
-				// interval: cfg.Interval,
-				interval: 2,
+				interval: cfg.Interval,
 				stop:     make(chan struct{}),
 			}
 			monitorServer.servers[cfg.Name] = ms
@@ -551,7 +550,7 @@ func monitorWorker(name string, ms *MonitorServer) {
 				lostCount--
 			}
 			history = history[1:]
-			interval = userInterval * 60 // 每次检查后增加间隔
+			interval = userInterval * 5 // 每次检查后增加间隔
 		}
 
 		// 执行监控检查
