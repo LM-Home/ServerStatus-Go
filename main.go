@@ -1001,12 +1001,18 @@ func trafficVnstat() (in, out uint64, err error) {
 
 func getTupd() (tcp, udp, process, thread int) {
 	// TCP连接数
-	tcpOut, _ := exec.Command("sh", "-c", "ss -t | wc -l").Output()
+	tcpOut, err := exec.Command("sh", "-c", "ss -t | wc -l").Output()
+	if err != nil {
+		tcpOut, _ = exec.Command("sh", "-c", "netstat -ant | grep '^tcp' | wc -l").Output()
+	}
 	tcp, _ = strconv.Atoi(strings.TrimSpace(string(tcpOut)))
 	tcp = max(tcp-1, 0) // 减去表头
 
 	// UDP连接数
-	udpOut, _ := exec.Command("sh", "-c", "ss -u | wc -l").Output()
+	udpOut, err := exec.Command("sh", "-c", "ss -u | wc -l").Output()
+	if err != nil {
+		udpOut, _ = exec.Command("sh", "-c", "netstat -anu | grep '^udp' | wc -l").Output()
+	}
 	udp, _ = strconv.Atoi(strings.TrimSpace(string(udpOut)))
 	udp = max(udp-1, 0)
 
@@ -1016,7 +1022,10 @@ func getTupd() (tcp, udp, process, thread int) {
 	process = max(process-2, 0)
 
 	// 线程数
-	threadOut, _ := exec.Command("sh", "-c", "ps -eLf | wc -l").Output()
+	threadOut, err := exec.Command("sh", "-c", "ps -eLf | wc -l").Output()
+	if err != nil {
+		threadOut, _ = exec.Command("sh", "-c", "grep -c ^Threads: /proc/*/status | wc -l").Output()
+	}
 	thread, _ = strconv.Atoi(strings.TrimSpace(string(threadOut)))
 	thread = max(thread-2, 0)
 
