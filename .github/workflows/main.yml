@@ -1,4 +1,4 @@
-name: build serviceStatus
+name: build serverStatus
 
 on:
   repository_dispatch:
@@ -35,6 +35,10 @@ jobs:
       - name: Build Go
         run: |
           set +e
+          rm go.sum
+          rm go.mod
+          go mod init ServerStatus
+          go mod tidy
           GOOS=linux GOARCH=386 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o serviceStatus-linux-386
           GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o serviceStatus-linux-amd64
           GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o serviceStatus-linux-arm64
