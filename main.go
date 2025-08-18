@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 
 	jsoniter "github.com/json-iterator/go"
 	"github.com/shirou/gopsutil/v3/disk"
@@ -921,28 +922,25 @@ func checkNetwork(version int) bool {
 	return true
 }
 
-func trafficVnstat() (in, out uint64, err error) {
-	cmd := exec.Command("vnstat", "--dumpdb", "1")
-	output, err := cmd.Output()
+func trafficVnstat() (uint64, uint64, error) {
+	buf, err := exec.Command("vnstat", "--oneline", "b").Output()
 	if err != nil {
 		return 0, 0, err
 	}
-
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "totalrx;") {
-			parts := strings.Split(line, ";")
-			if len(parts) >= 2 {
-				in, _ = strconv.ParseUint(parts[1], 10, 64)
-			}
-		} else if strings.HasPrefix(line, "totaltx;") {
-			parts := strings.Split(line, ";")
-			if len(parts) >= 2 {
-				out, _ = strconv.ParseUint(parts[1], 10, 64)
-			}
-		}
+	vData := strings.Split(BytesToString(buf), ";")
+	if len(vData) != 15 {
+		// Not enough data available yet.
+		return 0, 0, nil
 	}
-	return in, out, nil
+	netIn, err := strconv.ParseUint(vData[8], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	netOut, err := strconv.ParseUint(vData[9], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	return netIn, netOut, nil
 }
 
 func getTupd() (tcp, udp, process, thread int) {
@@ -995,6 +993,10 @@ func getCustomMonitorData() string {
 		parts = append(parts, part)
 	}
 	return strings.Join(parts, "<br>")
+}
+
+func BytesToString(b []byte) string {
+	return *(*string)(unsafe.Pointer(&b))
 }
 
 func max(a, b int) int {
