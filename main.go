@@ -21,36 +21,38 @@ import (
 )
 
 var (
-	SERVER                 = flag.String("h", "127.0.0.1", "Server host")
-	PORT                   = flag.Int("port", 35601, "Server port")
-	USER                   = flag.String("u", "s01", "Client username")
-	PASSWORD               = flag.String("p", "USER_DEFAULT_PASSWORD", "Client password")
-	INTERVAL               = flag.Float64("interval", 1.0, "Monitoring interval (seconds)")
-	DSN                    = flag.String("dsn", "", "DSN format: username:password@host:port")
-	isVnstat               = flag.Bool("vnstat", false, "Use vnstat for traffic (linux only)")
-	CU                     = flag.String("cu", "cu.tz.cloudcpp.com", "CU probe host")
-	CT                     = flag.String("ct", "ct.tz.cloudcpp.com", "CT probe host")
-	CM                     = flag.String("cm", "cm.tz.cloudcpp.com", "CM probe host")
-	PROBEPORT              = flag.Int("probeport", 80, "Probe port")
-	PROBE_PROTOCOL_PREFER  = flag.String("proto", "ipv4", "Protocol preference (ipv4/ipv6)")
-	PING_PACKET_HISTORY_LEN = 100
-	ONLINE_PACKET_HISTORY_LEN = 72
+	Server                 = flag.String("host", "", "主机地址")
+	Port                   = flag.Int("port", 35601, "主机端口")
+	User                   = flag.String("user", "", "客户端用户名")
+	Password               = flag.String("password", "", "客户端密码")
+	Interval               = flag.Float64("interval", 1.0, "数据发送间隔(秒)")
+	DSN                    = flag.String("dsn", "", "DSN 格式: username:password@host:port")
+	IsVnstat               = flag.Bool("vnstat", false, "使用 vnstat 获取网络流量(仅Linux)")
+	CU                     = flag.String("cu", "cu.tz.cloudcpp.com", "CU 探针地址")
+	CT                     = flag.String("ct", "ct.tz.cloudcpp.com", "CT 探针地址")
+	CM                     = flag.String("cm", "cm.tz.cloudcpp.com", "CM 探针地址")
+	ProbePort              = flag.Int("probePort", 80, "探针端口")
+	ProbeProtocolPrefer    = flag.String("proto", "ipv4", "探针协议偏好(ipv4或ipv6)")
+	PingPacketHistoryLen   = 64
+	OnlinePacketHistoryLen = 64
+	timeCU, timeCT, timeCM int
+	pingCU, pingCM, pingCT float64
 )
 
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 // 全局状态存储（带并发保护）
 var (
-	lostRate     = sync.Map{} // key: mark(string), value: float64(%)
-	pingTime     = sync.Map{} // key: mark(string), value: int(ms)
-	netSpeed     = struct {
+	lostRate = sync.Map{} // key: mark(string), value: float64(%)
+	pingTime = sync.Map{} // key: mark(string), value: int(ms)
+	netSpeed = struct {
 		sync.Mutex
-		netrx  int64
-		nettx  int64
-		clock  float64
-		diff   float64
-		avgrx  int64
-		avgtx  int64
+		netrx int64
+		nettx int64
+		clock float64
+		diff  float64
+		avgrx int64
+		avgtx int64
 	}{}
 	diskIO = struct {
 		sync.Mutex
@@ -68,10 +70,10 @@ var (
 // MonitorServer 自定义服务器监控数据
 type MonitorServer struct {
 	Type         string  `json:"type"`
-	DnsTime      int     `json:"dns_time"`
-	ConnectTime  int     `json:"connect_time"`
-	DownloadTime int     `json:"download_time"`
-	OnlineRate   float64 `json:"online_rate"`
+	DnsTime      int     `json:"dnsTime"`
+	ConnectTime  int     `json:"connectTime"`
+	DownloadTime int     `json:"downloadTime"`
+	OnlineRate   float64 `json:"onlineRate"`
 	host         string
 	interval     int
 	stop         chan struct{}
@@ -79,36 +81,36 @@ type MonitorServer struct {
 
 // ServerStatus 完整状态数据结构
 type ServerStatus struct {
-	Uptime       uint64          `json:"uptime"`
-	Load1        jsoniter.Number `json:"load_1"`
-	Load5        jsoniter.Number `json:"load_5"`
-	Load15       jsoniter.Number `json:"load_15"`
-	MemoryTotal  uint64          `json:"memory_total"`
-	MemoryUsed   uint64          `json:"memory_used"`
-	SwapTotal    uint64          `json:"swap_total"`
-	SwapUsed     uint64          `json:"swap_used"`
-	HddTotal     uint64          `json:"hdd_total"`
-	HddUsed      uint64          `json:"hdd_used"`
-	CPU          jsoniter.Number `json:"cpu"`
-	NetworkRx    int64           `json:"network_rx"`
-	NetworkTx    int64           `json:"network_tx"`
-	NetworkIn    uint64          `json:"network_in"`
-	NetworkOut   uint64          `json:"network_out"`
-	Online4      bool            `json:"online4,omitempty"`
-	Online6      bool            `json:"online6,omitempty"`
-	Ping10010    float64         `json:"ping_10010"`
-	Ping189      float64         `json:"ping_189"`
-	Ping10086    float64         `json:"ping_10086"`
-	Time10010    int             `json:"time_10010"`
-	Time189      int             `json:"time_189"`
-	Time10086    int             `json:"time_10086"`
-	TCP          int             `json:"tcp"`
-	UDP          int             `json:"udp"`
-	Process      int             `json:"process"`
-	Thread       int             `json:"thread"`
-	IoRead       int64           `json:"io_read"`
-	IoWrite      int64           `json:"io_write"`
-	Custom       string          `json:"custom"`
+	Uptime      uint64          `json:"uptime"`
+	Load1       jsoniter.Number `json:"load_1"`
+	Load5       jsoniter.Number `json:"load_5"`
+	Load15      jsoniter.Number `json:"load_15"`
+	MemoryTotal uint64          `json:"memory_total"`
+	MemoryUsed  uint64          `json:"memory_used"`
+	SwapTotal   uint64          `json:"swap_total"`
+	SwapUsed    uint64          `json:"swap_used"`
+	HddTotal    uint64          `json:"hdd_total"`
+	HddUsed     uint64          `json:"hdd_used"`
+	CPU         jsoniter.Number `json:"cpu"`
+	NetworkRx   int64           `json:"network_rx"`
+	NetworkTx   int64           `json:"network_tx"`
+	NetworkIn   uint64          `json:"network_in"`
+	NetworkOut  uint64          `json:"network_out"`
+	Online4     bool            `json:"online4,omitempty"`
+	Online6     bool            `json:"online6,omitempty"`
+	PingCU      float64         `json:"ping_10010"`
+	PingCM      float64         `json:"ping_10086"`
+	PingCT      float64         `json:"ping_189"`
+	TimeCU      int             `json:"time_10010"`
+	TimeCT      int             `json:"time_189"`
+	TimeCM      int             `json:"time_10086"`
+	TCP         int             `json:"tcp"`
+	UDP         int             `json:"udp"`
+	Process     int             `json:"process"`
+	Thread      int             `json:"thread"`
+	IoRead      int64           `json:"io_read"`
+	IoWrite     int64           `json:"io_write"`
+	Custom      string          `json:"custom"`
 }
 
 func main() {
@@ -131,21 +133,21 @@ func parseDSN() {
 	if *DSN != "" {
 		parts := strings.Split(*DSN, "@")
 		if len(parts) != 2 {
-			log.Fatal("Invalid DSN format")
+			log.Fatal("DSN 格式错误, 缺少 @ 符号, 应为 username:password@host:port")
 		}
 		auth := strings.Split(parts[0], ":")
 		if len(auth) != 2 {
-			log.Fatal("Invalid DSN auth part")
+			log.Fatal("DSN 格式错误, 缺少 : 号符, 应为 username:password@host:port")
 		}
-		*USER = auth[0]
-		*PASSWORD = auth[1]
+		*User = auth[0]
+		*Password = auth[1]
 
 		addr := strings.Split(parts[1], ":")
-		*SERVER = addr[0]
+		*Server = addr[0]
 		if len(addr) == 2 {
 			port, err := strconv.Atoi(addr[1])
 			if err == nil {
-				*PORT = port
+				*Port = port
 			}
 		}
 	}
@@ -153,23 +155,29 @@ func parseDSN() {
 
 // 验证参数有效性
 func validateParams() {
-	if *PORT < 1 || *PORT > 65535 {
-		log.Fatal("Invalid port number")
+	if *Port < 1 || *Port > 65535 {
+		log.Fatal("端口号必须在1到65535之间")
 	}
-	if *SERVER == "" || *USER == "" || *PASSWORD == "" {
-		log.Fatal("SERVER, USER and PASSWORD must be provided")
+	if *Server == "" || *User == "" || *Password == "" {
+		log.Fatal("主机地址、用户名和密码不能为空")
 	}
-	if *PROBE_PROTOCOL_PREFER != "ipv4" && *PROBE_PROTOCOL_PREFER != "ipv6" {
-		log.Fatal("Protocol preference must be ipv4 or ipv6")
+	probeProtocolPrefer := strings.ToLower(*ProbeProtocolPrefer)
+	switch probeProtocolPrefer {
+	case "ipv4":
+		*ProbeProtocolPrefer = "ip4"
+	case "ipv6":
+		*ProbeProtocolPrefer = "ip6"
+	default:
+		*ProbeProtocolPrefer = "ip"
 	}
 }
 
 // 启动所有后台监控线程
 func startBackgroundMonitors() {
 	// 启动多目标Ping监测
-	go pingWorker(*CU, "10010", *PROBEPORT)
-	go pingWorker(*CT, "189", *PROBEPORT)
-	go pingWorker(*CM, "10086", *PROBEPORT)
+	go pingWorker(*CU, "CU", *ProbePort)
+	go pingWorker(*CT, "CT", *ProbePort)
+	go pingWorker(*CM, "CM", *ProbePort)
 
 	// 启动网络速率监测
 	go netSpeedMonitor()
@@ -181,21 +189,24 @@ func startBackgroundMonitors() {
 // pingWorker 多目标Ping监测工作线程
 func pingWorker(host, mark string, port int) {
 	lostCount := 0
-	history := make([]int, 0, PING_PACKET_HISTORY_LEN)
-	interval := time.Duration(*INTERVAL) * time.Second
+	history := make([]int, 0, PingPacketHistoryLen)
+	userInterval := time.Duration(*Interval) * time.Second
+	interval := userInterval // 初始间隔
 
 	for {
 		// 解析IP（优先指定协议）
 		ip, err := resolveIP(host)
 		if err != nil {
+			log.Printf("PingWorker %s: 解析IP失败: %v\n", mark, err)
 			ip = host // 解析失败直接使用主机名
 		}
 
 		// 维护历史队列
-		if len(history) >= PING_PACKET_HISTORY_LEN {
+		if len(history) >= PingPacketHistoryLen {
 			if history[0] == 0 {
 				lostCount--
 			}
+			interval = userInterval * 60 // 每次检查后增加间隔
 			history = history[1:]
 		}
 
@@ -214,11 +225,10 @@ func pingWorker(host, mark string, port int) {
 		}
 
 		// 计算丢包率
-		if len(history) > 30 {
+		if len(history) > PingPacketHistoryLen/2 {
 			rate := float64(lostCount) / float64(len(history)) * 100
 			lostRate.Store(mark, rate)
 		}
-
 		time.Sleep(interval)
 	}
 }
@@ -229,18 +239,8 @@ func resolveIP(host string) (string, error) {
 		return host, nil // 已为IPv6地址
 	}
 
-	addrType := net.ResolveIPAddr
-	if *PROBE_PROTOCOL_PREFER == "ipv6" {
-		addrType = func(network, address string) (*net.IPAddr, error) {
-			return net.ResolveIPAddr("ip6", address)
-		}
-	} else {
-		addrType = func(_, address string) (*net.IPAddr, error) {
-			return net.ResolveIPAddr("ip4", address)
-		}
-	}
-
-	ipAddr, err := addrType("", host)
+	prefer := strings.ToLower(*ProbeProtocolPrefer)
+	ipAddr, err := net.ResolveIPAddr(prefer, host)
 	if err != nil {
 		return "", err
 	}
@@ -249,7 +249,7 @@ func resolveIP(host string) (string, error) {
 
 // netSpeedMonitor 网络速率监测
 func netSpeedMonitor() {
-	interval := time.Duration(*INTERVAL) * time.Second
+	interval := time.Duration(*Interval) * time.Second
 	netSpeed.avgrx = 0
 	netSpeed.avgtx = 0
 	netSpeed.clock = float64(time.Now().UnixNano()) / 1e9
@@ -257,7 +257,7 @@ func netSpeedMonitor() {
 	for {
 		avgrx, avgtx, err := getNetBytes()
 		if err != nil {
-			log.Println("Net speed error:", err)
+			log.Println("网络速率监测错误:", err)
 			time.Sleep(interval)
 			continue
 		}
@@ -315,14 +315,14 @@ func getNetBytes() (rx, tx int64, err error) {
 
 // diskIOMonitor 磁盘IO监测
 func diskIOMonitor() {
-	interval := time.Duration(*INTERVAL) * time.Second
+	interval := time.Duration(*Interval) * time.Second
 	excludeProcs := map[string]bool{"bash": true}
 
 	for {
 		// 第一次采样
 		first, err := getProcessIO()
 		if err != nil {
-			log.Println("Disk IO first sample error:", err)
+			log.Println("磁盘 IO 监测错误:", err)
 			time.Sleep(interval)
 			continue
 		}
@@ -332,7 +332,7 @@ func diskIOMonitor() {
 		// 第二次采样
 		second, err := getProcessIO()
 		if err != nil {
-			log.Println("Disk IO second sample error:", err)
+			log.Println("磁盘 IO 监测错误:", err)
 			time.Sleep(interval)
 			continue
 		}
@@ -410,10 +410,10 @@ func getProcessIO() (map[string]procIO, error) {
 
 // 连接服务器并发送状态数据
 func connect() {
-	log.Println("Connecting to", *SERVER, *PORT)
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(*SERVER, strconv.Itoa(*PORT)), 30*time.Second)
+	log.Println("连接:", *Server, ":", *Port)
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(*Server, strconv.Itoa(*Port)), 30*time.Second)
 	if err != nil {
-		log.Println("Connection failed:", err)
+		log.Println("连接失败:", err)
 		return
 	}
 	defer conn.Close()
@@ -426,7 +426,7 @@ func connect() {
 	// 处理监控配置
 	checkIP, err := handleMonitorConfig(conn)
 	if err != nil {
-		log.Println("Handle config error:", err)
+		log.Println("处理监控配置错误:", err)
 		return
 	}
 
@@ -439,21 +439,21 @@ func handleAuth(conn net.Conn) bool {
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
 	if err != nil || !strings.Contains(string(buf[:n]), "Authentication required") {
-		log.Println("Auth required check failed:", err)
+		log.Println("检测认证需求失败:", err)
 		return false
 	}
 
 	// 发送认证信息
-	_, err = conn.Write([]byte(*USER + ":" + *PASSWORD + "\n"))
+	_, err = conn.Write([]byte(*User + ":" + *Password + "\n"))
 	if err != nil {
-		log.Println("Send auth failed:", err)
+		log.Println("发送认证信息失败:", err)
 		return false
 	}
 
 	// 验证认证结果
 	n, err = conn.Read(buf)
 	if err != nil || !strings.Contains(string(buf[:n]), "Authentication successful") {
-		log.Println("Auth failed:", string(buf[:n]), err)
+		log.Println("认证失败:", string(buf[:n]), err)
 		return false
 	}
 
@@ -476,7 +476,7 @@ func handleMonitorConfig(conn net.Conn) (int, error) {
 	} else if strings.Contains(data, "IPv6") {
 		checkIP = 4
 	} else {
-		return 0, fmt.Errorf("unknown connection type")
+		return 0, fmt.Errorf("未知的连接方式")
 	}
 
 	// 解析监控服务器配置
@@ -520,8 +520,9 @@ func handleMonitorConfig(conn net.Conn) (int, error) {
 // monitorWorker 自定义服务器监控工作线程
 func monitorWorker(name string, ms *MonitorServer) {
 	lostCount := 0
-	history := make([]int, 0, ONLINE_PACKET_HISTORY_LEN)
-	interval := time.Duration(ms.interval) * time.Second
+	history := make([]int, 0, OnlinePacketHistoryLen)
+	usrInterval := time.Duration(ms.interval) * time.Second
+	interval := usrInterval // 初始间隔
 
 	for {
 		select {
@@ -539,11 +540,12 @@ func monitorWorker(name string, ms *MonitorServer) {
 		}
 
 		// 维护历史队列
-		if len(history) >= ONLINE_PACKET_HISTORY_LEN {
+		if len(history) >= OnlinePacketHistoryLen {
 			if history[0] == 0 {
 				lostCount--
 			}
 			history = history[1:]
+			interval = usrInterval * 5 // 每次检查后增加间隔
 		}
 
 		// 执行监控检查
@@ -609,7 +611,7 @@ func monitorHTTP(protocol, host string) (success bool, dnsTime, connectTime, dow
 	if protocol == "https" {
 		startTLS := time.Now()
 		tlsConn = tls.Client(conn, &tls.Config{
-			ServerName: address,
+			ServerName:         address,
 			InsecureSkipVerify: true, // 跳过证书验证，与Python版本保持一致
 		})
 		if err := tlsConn.Handshake(); err != nil {
@@ -699,7 +701,7 @@ func monitorTCP(host string) (success bool, dnsTime, connectTime, downloadTime i
 // 发送状态数据循环
 func sendStatusLoop(conn net.Conn, checkIP int) {
 	timer := 0.0
-	interval := time.Duration(*INTERVAL) * time.Second
+	interval := time.Duration(*Interval) * time.Second
 
 	for {
 		// 收集系统状态数据
@@ -708,13 +710,13 @@ func sendStatusLoop(conn net.Conn, checkIP int) {
 		// 序列化并发送
 		data, err := json.Marshal(status)
 		if err != nil {
-			log.Println("Marshal error:", err)
+			log.Println("序列化状态数据错误:", err)
 			break
 		}
 
 		_, err = conn.Write([]byte("update " + string(data) + "\n"))
 		if err != nil {
-			log.Println("Write error:", err)
+			log.Println("发送状态数据错误:", err)
 			break
 		}
 
@@ -730,10 +732,10 @@ func collectStatus(checkIP int, timer *float64) ServerStatus {
 	// 网络流量
 	var netIn, netOut uint64
 	var err error
-	if *isVnstat {
+	if *IsVnstat {
 		netIn, netOut, err = trafficVnstat()
 		if err != nil {
-			log.Println("Vnstat error:", err)
+			log.Println("Vnstat 错误:", err)
 		}
 	} else {
 		rx, tx, _ := getNetBytes()
@@ -764,15 +766,28 @@ func collectStatus(checkIP int, timer *float64) ServerStatus {
 		}
 		*timer = 150.0 // 每150秒检查一次
 	}
-	*timer -= *INTERVAL
+	*timer -= *Interval
 
 	// Ping数据
-	ping10010, _ := lostRate.Load("10010")
-	ping189, _ := lostRate.Load("189")
-	ping10086, _ := lostRate.Load("10086")
-	time10010, _ := pingTime.Load("10010")
-	time189, _ := pingTime.Load("189")
-	time10086, _ := pingTime.Load("10086")
+	if val, ok := lostRate.Load("CU"); ok {
+		pingCU = val.(float64)
+	}
+	if val, ok := lostRate.Load("CM"); ok {
+		pingCM = val.(float64)
+	}
+	if val, ok := lostRate.Load("CT"); ok {
+		pingCT = val.(float64)
+	}
+
+	if val, ok := pingTime.Load("CU"); ok {
+		timeCU = val.(int)
+	}
+	if val, ok := pingTime.Load("CM"); ok {
+		timeCM = val.(int)
+	}
+	if val, ok := pingTime.Load("CT"); ok {
+		timeCT = val.(int)
+	}
 
 	// 连接数和进程数
 	tcp, udp, process, thread := getTupd()
@@ -786,36 +801,36 @@ func collectStatus(checkIP int, timer *float64) ServerStatus {
 	custom := getCustomMonitorData()
 
 	return ServerStatus{
-		Uptime:       getUptime(),
-		Load1:        jsoniter.Number(fmt.Sprintf("%.2f", load1)),
-		Load5:        jsoniter.Number(fmt.Sprintf("%.2f", load5)),
-		Load15:       jsoniter.Number(fmt.Sprintf("%.2f", load15)),
-		MemoryTotal:  memTotal,
-		MemoryUsed:   memUsed,
-		SwapTotal:    swapTotal,
-		SwapUsed:     swapTotal - swapFree,
-		HddTotal:     hddTotal,
-		HddUsed:      hddUsed,
-		CPU:          jsoniter.Number(fmt.Sprintf("%.1f", cpu)),
-		NetworkRx:    netRx,
-		NetworkTx:    netTx,
-		NetworkIn:    netIn,
-		NetworkOut:   netOut,
-		Online4:      online4,
-		Online6:      online6,
-		Ping10010:    ping10010.(float64),
-		Ping189:      ping189.(float64),
-		Ping10086:    ping10086.(float64),
-		Time10010:    time10010.(int),
-		Time189:      time189.(int),
-		Time10086:    time10086.(int),
-		TCP:          tcp,
-		UDP:          udp,
-		Process:      process,
-		Thread:       thread,
-		IoRead:       ioRead,
-		IoWrite:      ioWrite,
-		Custom:       custom,
+		Uptime:      getUptime(),
+		Load1:       jsoniter.Number(fmt.Sprintf("%.2f", load1)),
+		Load5:       jsoniter.Number(fmt.Sprintf("%.2f", load5)),
+		Load15:      jsoniter.Number(fmt.Sprintf("%.2f", load15)),
+		MemoryTotal: memTotal,
+		MemoryUsed:  memUsed,
+		SwapTotal:   swapTotal,
+		SwapUsed:    swapTotal - swapFree,
+		HddTotal:    hddTotal,
+		HddUsed:     hddUsed,
+		CPU:         jsoniter.Number(fmt.Sprintf("%.1f", cpu)),
+		NetworkRx:   netRx,
+		NetworkTx:   netTx,
+		NetworkIn:   netIn,
+		NetworkOut:  netOut,
+		Online4:     online4,
+		Online6:     online6,
+		PingCU:      pingCU,
+		PingCM:      pingCM,
+		PingCT:      pingCT,
+		TimeCU:      timeCU,
+		TimeCT:      timeCT,
+		TimeCM:      timeCM,
+		TCP:         tcp,
+		UDP:         udp,
+		Process:     process,
+		Thread:      thread,
+		IoRead:      ioRead,
+		IoWrite:     ioWrite,
+		Custom:      custom,
 	}
 }
 
@@ -885,7 +900,7 @@ func getCPU() float64 {
 	if err != nil {
 		return 0
 	}
-	time.Sleep(time.Duration(*INTERVAL) * time.Second)
+	time.Sleep(time.Duration(*Interval) * time.Second)
 
 	// 读取结束CPU时间
 	end, err := getCPUTime()
