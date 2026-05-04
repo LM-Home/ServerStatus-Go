@@ -1,6 +1,6 @@
 module ServiceStatus
 
-go 1.21.0
+go 1.26.1
 
 require (
 	github.com/json-iterator/go v1.1.12
