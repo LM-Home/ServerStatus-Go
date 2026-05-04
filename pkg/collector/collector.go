@@ -302,23 +302,59 @@ func (c *Collector) trafficVnstat() (uint64, uint64, error) {
 }
 
 func (c *Collector) getTupd() (tcp, udp, process, thread int) {
-	tcp = c.countLines("ss -t", "netstat -ant | grep '^tcp'")
-	udp = c.countLines("ss -u", "netstat -anu | grep '^udp'")
-	process = c.countLines("ps -ef", "") - 1 // Simple approximation
-	thread = c.countLines("ps -eLf", "grep -c ^Threads: /proc/*/status")
+	tcp = c.countProcNet("/proc/net/tcp") + c.countProcNet("/proc/net/tcp6")
+	udp = c.countProcNet("/proc/net/udp") + c.countProcNet("/proc/net/udp6")
+	process = c.countProcesses()
+	thread = c.countThreads()
 	return
 }
 
-func (c *Collector) countLines(cmd, fallback string) int {
-	out, err := exec.Command("sh", "-c", cmd+" | wc -l").Output()
-	if err != nil || strings.TrimSpace(string(out)) == "1" {
-		if fallback != "" {
-			out, _ = exec.Command("sh", "-c", fallback+" | wc -l").Output()
+// countProcNet 读取 /proc/net/* 文件统计连接数（跳过首行 header）
+func (c *Collector) countProcNet(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) <= 1 {
+		return 0
+	}
+	return len(lines) - 1
+}
+
+// countProcesses 统计 /proc 下数字目录（即 PID）数量
+func (c *Collector) countProcesses() int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			if _, err := strconv.Atoi(entry.Name()); err == nil {
+				count++
+			}
 		}
 	}
-	val, _ := strconv.Atoi(strings.TrimSpace(string(out)))
-	if val > 0 {
-		return val - 1
+	return count
+}
+
+// countThreads 从 /proc/loadavg 第4字段获取系统总线程数
+// 格式: "0.01 0.04 0.01 1/234 5678" → 234
+func (c *Collector) countThreads() int {
+	data, err := os.ReadFile("/proc/loadavg")
+	if err != nil {
+		return 0
 	}
-	return 0
+	parts := strings.Fields(string(data))
+	if len(parts) < 4 {
+		return 0
+	}
+	// 第4字段格式: "running/total"
+	slash := strings.Split(parts[3], "/")
+	if len(slash) != 2 {
+		return 0
+	}
+	total, _ := strconv.Atoi(slash[1])
+	return total
 }
