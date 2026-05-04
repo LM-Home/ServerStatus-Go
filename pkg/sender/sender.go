@@ -55,6 +55,12 @@ func (s *Sender) connect(ctx context.Context) {
 	}
 	defer conn.Close()
 
+	// 启用 TCP Keepalive，防止 Docker conntrack 清理空闲连接
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetKeepAlivePeriod(30 * time.Second)
+	}
+
 	if !s.handleAuth(conn) {
 		return
 	}
@@ -67,6 +73,19 @@ func (s *Sender) connect(ctx context.Context) {
 		slog.Error("Handle monitor config failed", "err", err)
 		return
 	}
+
+	// 后台读取：及时检测服务端断开连接
+	go func() {
+		buf := make([]byte, 512)
+		for {
+			_, err := conn.Read(buf)
+			if err != nil {
+				slog.Warn("Server connection read error, triggering reconnect", "err", err)
+				cancel()
+				return
+			}
+		}
+	}()
 
 	s.sendStatusLoop(childCtx, conn)
 }
@@ -170,6 +189,7 @@ func (s *Sender) sendStatusLoop(ctx context.Context, conn net.Conn) {
 
 			slog.Debug("Sending update", "data", string(data))
 
+			conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 			_, err = conn.Write([]byte("update " + string(data) + "\n"))
 			if err != nil {
 				slog.Error("Send status failed", "err", err)
