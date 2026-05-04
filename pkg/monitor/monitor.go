@@ -277,5 +277,9 @@ func (m *Monitor) GetCustomMonitorData() string {
 	if err != nil {
 		return ""
 	}
-	return string(b)
+	// C++ 服务端用 sprintf("%s") 将 custom 字段直接嵌入 JSON 字符串值，
+	// 不会对内部引号做转义。这里预先将 " 转义为 \"，
+	// 经过 Go json.Marshal → C++ json_parse(反转义) → C++ sprintf 后，
+	// 输出到 stats.json 中的值才是合法的 JSON 字符串。
+	return strings.ReplaceAll(string(b), `"`, `\"`)
 }
