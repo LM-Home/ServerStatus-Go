@@ -17,9 +17,9 @@ import (
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 type Sender struct {
-	cfg     *config.Config
-	store   *common.Store
-	monitor *monitor.Monitor
+	cfg      *config.Config
+	store    *common.Store
+	monitor  *monitor.Monitor
 	statusCh chan common.ServerStatus
 }
 
@@ -143,7 +143,9 @@ func (s *Sender) handleMonitorConfig(ctx context.Context, conn net.Conn) error {
 		if strings.Contains(line, "monitor") && strings.Contains(line, "{") {
 			start := strings.Index(line, "{")
 			end := strings.LastIndex(line, "}") + 1
-			if start == -1 || end <= start { continue }
+			if start == -1 || end <= start {
+				continue
+			}
 
 			var cfg struct {
 				Name     string `json:"name"`
@@ -156,8 +158,8 @@ func (s *Sender) handleMonitorConfig(ctx context.Context, conn net.Conn) error {
 			}
 
 			ms := &common.MonitorServer{
-				Type: cfg.Type,
-				Host: cfg.Host,
+				Type:     cfg.Type,
+				Host:     cfg.Host,
 				Interval: cfg.Interval,
 				Stop:     make(chan struct{}),
 			}
@@ -201,38 +203,42 @@ func (s *Sender) sendStatusLoop(ctx context.Context, conn net.Conn) {
 
 func (s *Sender) buildStatus() common.ServerStatus {
 	s.store.RLock()
-	defer s.store.RUnlock()
+	status := s.store
+	s.store.RUnlock()
+
+	custom := s.monitor.GetCustomMonitorData()
 
 	return common.ServerStatus{
-		Uptime:      s.store.Uptime,
-		Load1:       jsoniter.Number(fmt.Sprintf("%.2f", s.store.Load1)),
-		Load5:       jsoniter.Number(fmt.Sprintf("%.2f", s.store.Load5)),
-		Load15:      jsoniter.Number(fmt.Sprintf("%.2f", s.store.Load15)),
-		MemoryTotal: s.store.MemoryTotal,
-		MemoryUsed:  s.store.MemoryUsed,
-		SwapTotal:   s.store.SwapTotal,
-		SwapUsed:    s.store.SwapUsed,
-		HddTotal:    s.store.HddTotal,
-		HddUsed:     s.store.HddUsed,
-		CPU:         jsoniter.Number(fmt.Sprintf("%.1f", s.store.CPU)),
-		NetworkRx:   s.store.NetworkRx,
-		NetworkTx:   s.store.NetworkTx,
-		NetworkIn:   s.store.NetworkIn,
-		NetworkOut:  s.store.NetworkOut,
-		Online4:     s.store.Online4,
-		Online6:     s.store.Online6,
-		PingCU:      s.store.PingCU,
-		PingCM:      s.store.PingCM,
-		PingCT:      s.store.PingCT,
-		TimeCU:      s.store.TimeCU,
-		TimeCT:      s.store.TimeCT,
-		TimeCM:      s.store.TimeCM,
-		TCP:         s.store.TCP,
-		UDP:         s.store.UDP,
-		Process:     s.store.Process,
-		Thread:      s.store.Thread,
-		IoRead:      s.store.IoRead,
-		IoWrite:     s.store.IoWrite,
-		Custom:      s.monitor.GetCustomMonitorData(),
+		Uptime:      status.Uptime,
+		Load1:       jsoniter.Number(fmt.Sprintf("%.2f", status.Load1)),
+		Load5:       jsoniter.Number(fmt.Sprintf("%.2f", status.Load5)),
+		Load15:      jsoniter.Number(fmt.Sprintf("%.2f", status.Load15)),
+		MemoryTotal: status.MemoryTotal,
+		MemoryUsed:  status.MemoryUsed,
+		SwapTotal:   status.SwapTotal,
+		SwapUsed:    status.SwapUsed,
+		HddTotal:    status.HddTotal,
+		HddUsed:     status.HddUsed,
+		CPU:         jsoniter.Number(fmt.Sprintf("%.1f", status.CPU)),
+		NetworkRx:   status.NetworkRx,
+		NetworkTx:   status.NetworkTx,
+		NetworkIn:   status.NetworkIn,
+		NetworkOut:  status.NetworkOut,
+		Online4:     status.Online4,
+		Online6:     status.Online6,
+		PingCU:      status.PingCU,
+		PingCM:      status.PingCM,
+		PingCT:      status.PingCT,
+		TimeCU:      status.TimeCU,
+		TimeCT:      status.TimeCT,
+		TimeCM:      status.TimeCM,
+		TCP:         status.TCP,
+		UDP:         status.UDP,
+		Process:     status.Process,
+		Thread:      status.Thread,
+		IoRead:      status.IoRead,
+		IoWrite:     status.IoWrite,
+		Custom:      custom,
 	}
+
 }
