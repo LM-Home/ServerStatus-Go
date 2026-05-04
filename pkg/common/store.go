@@ -76,11 +76,10 @@ func (s *Store) Update(fn func(*Store)) {
 	fn(s)
 }
 
-func (s *Store) GetStatus() ServerStatus {
+func (s *Store) RLock() {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	
-	// Convert internal state to ServerStatus
-	// Logic to be refined as we implement collectors
-	return ServerStatus{} 
+}
+
+func (s *Store) RUnlock() {
+	s.mu.RUnlock()
 }
