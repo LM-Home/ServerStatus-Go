@@ -3,7 +3,7 @@ package monitor
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
+	"encoding/json"
 	"log/slog"
 	"net"
 	"net/http"
@@ -250,11 +250,32 @@ func (m *Monitor) GetCustomMonitorData() string {
 	m.store.RLock()
 	defer m.store.RUnlock()
 
-	var parts []string
-	for name, ms := range m.store.MonitorServers {
-		part := fmt.Sprintf("%s\\t解析: %d\\t连接: %d\\t下载: %d\\t在线率: <code>%.1f%%</code>",
-			name, ms.DnsTime, ms.ConnectTime, ms.DownloadTime, ms.OnlineRate*100)
-		parts = append(parts, part)
+	type MonItem struct {
+		Name string  `json:"name"`
+		Dns  int     `json:"dns"`
+		Conn int     `json:"conn"`
+		Down int     `json:"down"`
+		Rate float64 `json:"rate"`
 	}
-	return strings.Join(parts, "<br>")
+
+	var items []MonItem
+	for name, ms := range m.store.MonitorServers {
+		items = append(items, MonItem{
+			Name: name,
+			Dns:  ms.DnsTime,
+			Conn: ms.ConnectTime,
+			Down: ms.DownloadTime,
+			Rate: ms.OnlineRate * 100,
+		})
+	}
+	
+	if len(items) == 0 {
+		return ""
+	}
+
+	b, err := json.Marshal(items)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
