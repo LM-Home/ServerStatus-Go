@@ -3,8 +3,6 @@ package collector
 import (
 	"bufio"
 	"fmt"
-	"log"
-	"net"
 	"os"
 	"os/exec"
 	"regexp"
