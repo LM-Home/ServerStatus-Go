@@ -28,6 +28,31 @@ func (m *Monitor) Start(ctx context.Context) {
 	go m.pingWorker(ctx, m.cfg.CU, "CU", m.cfg.ProbePort)
 	go m.pingWorker(ctx, m.cfg.CT, "CT", m.cfg.ProbePort)
 	go m.pingWorker(ctx, m.cfg.CM, "CM", m.cfg.ProbePort)
+	go m.networkCheckWorker(ctx)
+}
+
+func (m *Monitor) networkCheckWorker(ctx context.Context) {
+	ticker := time.NewTicker(150 * time.Second)
+	defer ticker.Stop()
+
+	check := func() {
+		o4 := m.CheckNetwork(4)
+		o6 := m.CheckNetwork(6)
+		m.store.Update(func(s *common.Store) {
+			s.Online4 = o4
+			s.Online6 = o6
+		})
+	}
+
+	check() // Initial check
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			check()
+		}
+	}
 }
 
 func (m *Monitor) pingWorker(ctx context.Context, host, mark string, port int) {

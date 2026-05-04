@@ -19,6 +19,7 @@ type Config struct {
 	CM                  string
 	ProbePort           int
 	ProbeProtocolPrefer string
+	Debug               bool
 }
 
 func LoadConfig() *Config {
@@ -34,6 +35,7 @@ func LoadConfig() *Config {
 	cm := flag.String("cm", "cm.tz.cloudcpp.com", "CM 探针地址")
 	probePort := flag.Int("probePort", 80, "探针端口")
 	proto := flag.String("proto", "ipv4", "探针协议偏好(ipv4或ipv6)")
+	debug := flag.Bool("debug", false, "开启调试模式")
 
 	flag.Parse()
 
@@ -49,6 +51,7 @@ func LoadConfig() *Config {
 		CM:                  *cm,
 		ProbePort:           *probePort,
 		ProbeProtocolPrefer: *proto,
+		Debug:               *debug,
 	}
 
 	if *dsn != "" {

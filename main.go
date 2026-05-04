@@ -19,6 +19,14 @@ func main() {
 	// 1. Load config
 	cfg := config.LoadConfig()
 
+	// 1.5 Setup Logger
+	level := slog.LevelInfo
+	if cfg.Debug {
+		level = slog.LevelDebug
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	slog.SetDefault(logger)
+
 	// 2. Initialize store
 	store := common.NewStore()
 

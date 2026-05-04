@@ -62,13 +62,13 @@ func (s *Sender) connect(ctx context.Context) {
 	childCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	checkIP, err := s.handleMonitorConfig(childCtx, conn)
+	err = s.handleMonitorConfig(childCtx, conn)
 	if err != nil {
 		slog.Error("Handle monitor config failed", "err", err)
 		return
 	}
 
-	s.sendStatusLoop(childCtx, conn, checkIP)
+	s.sendStatusLoop(childCtx, conn)
 }
 
 func (s *Sender) handleAuth(conn net.Conn) bool {
@@ -95,21 +95,20 @@ func (s *Sender) handleAuth(conn net.Conn) bool {
 	return true
 }
 
-func (s *Sender) handleMonitorConfig(ctx context.Context, conn net.Conn) (int, error) {
+func (s *Sender) handleMonitorConfig(ctx context.Context, conn net.Conn) error {
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	data := string(buf[:n])
 
-	checkIP := 0
 	if strings.Contains(data, "IPv4") {
-		checkIP = 6
+		// checkIP = 6 (ignoring as we check both in background)
 	} else if strings.Contains(data, "IPv6") {
-		checkIP = 4
+		// checkIP = 4
 	} else {
-		return 0, fmt.Errorf("unknown connection mode")
+		return fmt.Errorf("unknown connection mode")
 	}
 
 	s.store.Update(func(st *common.Store) {
@@ -150,25 +149,26 @@ func (s *Sender) handleMonitorConfig(ctx context.Context, conn net.Conn) (int, e
 		}
 	}
 
-	return checkIP, nil
+	return nil
 }
 
-func (s *Sender) sendStatusLoop(ctx context.Context, conn net.Conn, checkIP int) {
+func (s *Sender) sendStatusLoop(ctx context.Context, conn net.Conn) {
 	ticker := time.NewTicker(time.Duration(s.cfg.Interval) * time.Second)
 	defer ticker.Stop()
 
-	timer := 0.0
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			status := s.buildStatus(checkIP, &timer)
+			status := s.buildStatus()
 			data, err := json.Marshal(status)
 			if err != nil {
 				slog.Error("Marshal status failed", "err", err)
 				continue
 			}
+
+			slog.Debug("Sending update", "data", string(data))
 
 			_, err = conn.Write([]byte("update " + string(data) + "\n"))
 			if err != nil {
@@ -179,17 +179,9 @@ func (s *Sender) sendStatusLoop(ctx context.Context, conn net.Conn, checkIP int)
 	}
 }
 
-func (s *Sender) buildStatus(checkIP int, timer *float64) common.ServerStatus {
+func (s *Sender) buildStatus() common.ServerStatus {
 	s.store.RLock()
 	defer s.store.RUnlock()
-
-	// Online check (simplified for now, ideally moved to monitor)
-	var online4, online6 bool
-	if *timer <= 0 {
-		if checkIP == 4 { online4 = s.monitor.CheckNetwork(4) } else { online6 = s.monitor.CheckNetwork(6) }
-		*timer = 150.0
-	}
-	*timer -= s.cfg.Interval
 
 	return common.ServerStatus{
 		Uptime:      s.store.Uptime,
@@ -207,8 +199,8 @@ func (s *Sender) buildStatus(checkIP int, timer *float64) common.ServerStatus {
 		NetworkTx:   s.store.NetworkTx,
 		NetworkIn:   s.store.NetworkIn,
 		NetworkOut:  s.store.NetworkOut,
-		Online4:     online4,
-		Online6:     online6,
+		Online4:     s.store.Online4,
+		Online6:     s.store.Online6,
 		PingCU:      s.store.PingCU,
 		PingCM:      s.store.PingCM,
 		PingCT:      s.store.PingCT,

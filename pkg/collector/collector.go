@@ -111,13 +111,27 @@ func (c *Collector) getMemory() (total, used, swapTotal, swapUsed uint64) {
 		}
 	}
 	total = memInfo["MemTotal:"]
+	if total == 0 {
+		return
+	}
 	free := memInfo["MemFree:"]
 	buffers := memInfo["Buffers:"]
 	cached := memInfo["Cached:"]
 	sreclaimable := memInfo["SReclaimable:"]
-	used = total - free - buffers - cached - sreclaimable
+
+	// Defensive check to prevent underflow
+	overhead := free + buffers + cached + sreclaimable
+	if total > overhead {
+		used = total - overhead
+	} else {
+		used = 0
+	}
+
 	swapTotal = memInfo["SwapTotal:"]
-	swapUsed = swapTotal - memInfo["SwapFree:"]
+	swapUsed = 0
+	if swapTotal > memInfo["SwapFree:"] {
+		swapUsed = swapTotal - memInfo["SwapFree:"]
+	}
 	return
 }
 
@@ -207,7 +221,7 @@ func (c *Collector) netSpeedMonitor() {
 		now := float64(time.Now().UnixNano()) / 1e9
 		c.store.Update(func(s *common.Store) {
 			s.NetDiff = now - s.NetClock
-			if s.NetDiff > 0 {
+			if s.NetDiff > 0 && s.AvgRx > 0 { // Only calculate speed after first successful read
 				s.NetworkRx = int64(float64(rx-s.AvgRx) / s.NetDiff)
 				s.NetworkTx = int64(float64(tx-s.AvgTx) / s.NetDiff)
 			}
