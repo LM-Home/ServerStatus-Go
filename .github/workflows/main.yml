@@ -34,10 +34,6 @@ jobs:
           
       - name: Build Go
         run: |
-          set +e
-          rm go.sum
-          rm go.mod
-          go mod init ServerStatus
           go mod tidy
           GOOS=linux GOARCH=386 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o serverStatus-linux-386
           GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o serverStatus-linux-amd64
