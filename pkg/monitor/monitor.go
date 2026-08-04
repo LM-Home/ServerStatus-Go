@@ -3,10 +3,11 @@ package monitor
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -272,18 +273,23 @@ func (m *Monitor) GetCustomMonitorData() string {
 			Rate: ms.OnlineRate * 100,
 		})
 	}
-	
+
 	if len(items) == 0 {
 		return ""
 	}
 
-	b, err := json.Marshal(items)
-	if err != nil {
-		return ""
+	// 上游服务端前端(web/js/app.js parseCustom)只解析 name=ms;name=ms 格式，
+	// 与 Python 客户端 array['custom'] = ';'.join(f"{k}={v}") 保持一致。
+	// 使用连接往返耗时(ConnectTime)作为探测延迟；未成功探测时为 0。
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+
+	parts := make([]string, 0, len(items))
+	for _, it := range items {
+		latency := it.Conn
+		if latency < 0 {
+			latency = 0
+		}
+		parts = append(parts, fmt.Sprintf("%s=%d", it.Name, latency))
 	}
-	// C++ 服务端用 sprintf("%s") 将 custom 字段直接嵌入 JSON 字符串值，
-	// 不会对内部引号做转义。这里预先将 " 转义为 \"，
-	// 经过 Go json.Marshal → C++ json_parse(反转义) → C++ sprintf 后，
-	// 输出到 stats.json 中的值才是合法的 JSON 字符串。
-	return strings.ReplaceAll(string(b), `"`, `\"`)
+	return strings.Join(parts, ";")
 }
