@@ -36,8 +36,8 @@ type ServerStatus struct {
 	NetworkTx   int64           `json:"network_tx"`
 	NetworkIn   uint64          `json:"network_in"`
 	NetworkOut  uint64          `json:"network_out"`
-	Online4     bool            `json:"online4,omitempty"`
-	Online6     bool            `json:"online6,omitempty"`
+	Online4     bool            `json:"online4"`
+	Online6     bool            `json:"online6"`
 	PingCU      float64         `json:"ping_10010"`
 	PingCM      float64         `json:"ping_10086"`
 	PingCT      float64         `json:"ping_189"`

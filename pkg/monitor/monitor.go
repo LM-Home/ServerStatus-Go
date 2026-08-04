@@ -244,8 +244,15 @@ func (m *Monitor) monitorTCP(host string) (bool, int, int, int) {
 
 func (m *Monitor) CheckNetwork(version int) bool {
 	host := "ipv4.google.com"
-	if version == 6 { host = "ipv6.google.com" }
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, "80"), 2*time.Second)
+	network := "tcp4"
+	if version == 6 {
+		host = "ipv6.google.com"
+		network = "tcp6"
+	}
+	// 强制指定 IP 协议栈（tcp4/tcp6），避免 net.Dial 对
+	// 同时存在 A/AAAA 记录的域名做 happy-eyeballs 回退到另一栈，
+	// 导致仅有单栈的机器被误判为双栈。
+	conn, err := net.DialTimeout(network, net.JoinHostPort(host, "80"), 2*time.Second)
 	if err != nil { return false }
 	conn.Close()
 	return true
