@@ -13,7 +13,9 @@ import (
 
 	"ServiceStatus/pkg/common"
 	"ServiceStatus/pkg/config"
+	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/shirou/gopsutil/v3/host"
 )
 
 var (
@@ -33,6 +35,15 @@ func NewCollector(cfg *config.Config, store *common.Store) *Collector {
 func (c *Collector) Start() {
 	go c.netSpeedMonitor()
 	go c.diskIOMonitor()
+
+	cores := c.getCPUCores()
+	model := c.getCPUModel()
+	osName := c.getOS()
+	c.store.Update(func(s *common.Store) {
+		s.CPUCores = cores
+		s.CPUModel = model
+		s.OS = osName
+	})
 }
 
 func (c *Collector) CollectAll() {
@@ -357,4 +368,78 @@ func (c *Collector) countThreads() int {
 	}
 	total, _ := strconv.Atoi(slash[1])
 	return total
+}
+
+func (c *Collector) getCPUCores() int {
+	count, err := cpu.Counts(true)
+	if err != nil || count <= 0 {
+		return 0
+	}
+	return count
+}
+
+func (c *Collector) getCPUModel() string {
+	infos, err := cpu.Info()
+	if err != nil || len(infos) == 0 {
+		return c.getCPUModelFallback()
+	}
+	model := normalizeCPUModel(infos[0].ModelName)
+	if isGenericCPUModel(model) {
+		return c.getCPUModelFallback()
+	}
+	return model
+}
+
+func (c *Collector) getCPUModelFallback() string {
+	info, err := host.Info()
+	if err != nil {
+		return ""
+	}
+	if info.PlatformFamily != "" {
+		model := normalizeCPUModel(info.Platform + " " + info.KernelArch)
+		if model != "" {
+			return model
+		}
+	}
+	return ""
+}
+
+func normalizeCPUModel(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+}
+
+func isGenericCPUModel(value string) bool {
+	lower := strings.ToLower(value)
+	if lower == "" || lower == "unknown" || lower == "not available" {
+		return true
+	}
+	for _, generic := range []string{"x86_64", "amd64", "i386", "i686", "aarch64", "arm64", "armv7", "armv8", "x86-64", "x8664"} {
+		if lower == generic {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Collector) getOS() string {
+	if info, err := host.Info(); err == nil && info.Platform != "" {
+		osName := strings.ToLower(info.Platform)
+		if idx := strings.Index(osName, " "); idx > 0 {
+			osName = osName[:idx]
+		}
+		return osName
+	}
+	data, err := os.ReadFile("/etc/os-release")
+	if err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "ID=") {
+				val := strings.SplitN(line, "=", 2)[1]
+				val = strings.Trim(val, "\"'")
+				if val != "" {
+					return strings.ToLower(val)
+				}
+			}
+		}
+	}
+	return "linux"
 }

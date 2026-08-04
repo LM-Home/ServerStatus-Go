@@ -19,6 +19,10 @@ type Store struct {
 	HddUsed     uint64
 	CPU         float64
 
+	CPUCores int
+	CPUModel string
+	OS       string
+
 	// Network
 	NetworkRx int64
 	NetworkTx int64

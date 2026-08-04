@@ -29,6 +29,9 @@ type ServerStatus struct {
 	HddTotal    uint64          `json:"hdd_total"`
 	HddUsed     uint64          `json:"hdd_used"`
 	CPU         jsoniter.Number `json:"cpu"`
+	CPUCores    int             `json:"cpu_cores"`
+	CPUModel    string          `json:"cpu_model"`
+	OS          string          `json:"os"`
 	NetworkRx   int64           `json:"network_rx"`
 	NetworkTx   int64           `json:"network_tx"`
 	NetworkIn   uint64          `json:"network_in"`

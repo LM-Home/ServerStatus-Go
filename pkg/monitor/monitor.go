@@ -24,6 +24,16 @@ func NewMonitor(cfg *config.Config, store *common.Store) *Monitor {
 	return &Monitor{cfg: cfg, store: store}
 }
 
+// msRoundUp 将耗时舍入到毫秒，并保证成功探测至少为 1ms，
+// 避免 <1ms 的快速连接(如命中本机加速/代理)被 int 截断显示为 0ms。
+func msRoundUp(d time.Duration) int {
+	ms := d.Round(time.Millisecond).Milliseconds()
+	if ms < 1 {
+		ms = 1
+	}
+	return int(ms)
+}
+
 func (m *Monitor) Start(ctx context.Context) {
 	go m.pingWorker(ctx, m.cfg.CU, "CU", m.cfg.ProbePort)
 	go m.pingWorker(ctx, m.cfg.CT, "CT", m.cfg.ProbePort)
@@ -93,7 +103,7 @@ func (m *Monitor) pingWorker(ctx context.Context, host, mark string, port int) {
 			})
 		} else {
 			conn.Close()
-			delay := int(time.Since(start).Milliseconds())
+			delay := msRoundUp(time.Since(start))
 			history = append(history, 1)
 			m.store.Update(func(s *common.Store) {
 				if mark == "CU" { s.TimeCU = delay }
@@ -181,19 +191,11 @@ func (m *Monitor) monitorCheck(protocol, host string) (bool, int, int, int) {
 
 func (m *Monitor) monitorHTTP(protocol, host string) (bool, int, int, int) {
 	address := strings.TrimPrefix(host, protocol+"://")
-	port := 80
-	if protocol == "https" { port = 443 }
-
 	start := time.Now()
-	ip, err := m.resolveIP(address)
-	if err != nil { return false, 0, 0, 0 }
-	dnsTime := int(time.Since(start).Milliseconds())
-
-	start = time.Now()
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, strconv.Itoa(port)), 6*time.Second)
-	if err != nil { return false, dnsTime, 0, 0 }
-	conn.Close()
-	connectTime := int(time.Since(start).Milliseconds())
+	if _, err := m.resolveIP(address); err != nil {
+		return false, 0, 0, 0
+	}
+	dnsTime := msRoundUp(time.Since(start))
 
 	client := &http.Client{
 		Timeout: 5 * time.Second,
@@ -202,15 +204,17 @@ func (m *Monitor) monitorHTTP(protocol, host string) (bool, int, int, int) {
 		},
 	}
 
+	start = time.Now()
 	resp, err := client.Get(host)
-	if err != nil { return false, dnsTime, connectTime, 0 }
+	if err != nil { return false, dnsTime, 0, 0 }
 	defer resp.Body.Close()
+	roundTrip := msRoundUp(time.Since(start))
 
 	code := resp.StatusCode
 	if code >= 200 && code < 400 || code == 401 {
-		return true, dnsTime, connectTime, int(time.Since(start).Milliseconds())
+		return true, dnsTime, roundTrip, roundTrip
 	}
-	return false, dnsTime, connectTime, 0
+	return false, dnsTime, roundTrip, 0
 }
 
 func (m *Monitor) monitorTCP(host string) (bool, int, int, int) {
@@ -220,13 +224,13 @@ func (m *Monitor) monitorTCP(host string) (bool, int, int, int) {
 	start := time.Now()
 	ip, err := m.resolveIP(parts[0])
 	if err != nil { return false, 0, 0, 0 }
-	dnsTime := int(time.Since(start).Milliseconds())
+	dnsTime := msRoundUp(time.Since(start))
 
 	start = time.Now()
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, parts[1]), 6*time.Second)
 	if err != nil { return false, dnsTime, 0, 0 }
 	defer conn.Close()
-	connectTime := int(time.Since(start).Milliseconds())
+	connectTime := msRoundUp(time.Since(start))
 
 	start = time.Now()
 	if _, err := conn.Write([]byte("GET / HTTP/1.2\r\n\r\n")); err != nil {
@@ -234,7 +238,7 @@ func (m *Monitor) monitorTCP(host string) (bool, int, int, int) {
 	}
 	buf := make([]byte, 1024)
 	conn.Read(buf)
-	return true, dnsTime, connectTime, int(time.Since(start).Milliseconds())
+	return true, dnsTime, connectTime, msRoundUp(time.Since(start))
 }
 
 func (m *Monitor) CheckNetwork(version int) bool {
