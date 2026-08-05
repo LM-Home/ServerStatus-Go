@@ -307,8 +307,8 @@ func (c *Collector) trafficVnstat() (uint64, uint64, error) {
 	if len(vData) != 15 {
 		return 0, 0, nil
 	}
-	rx, _ := strconv.ParseUint(vData[8], 10, 64)
-	tx, _ := strconv.ParseUint(vData[9], 10, 64)
+	rx, _ := strconv.ParseUint(vData[12], 10, 64)
+	tx, _ := strconv.ParseUint(vData[13], 10, 64)
 	return rx, tx, nil
 }
 
