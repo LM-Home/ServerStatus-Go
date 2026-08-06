@@ -17,10 +17,25 @@ import (
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 type Sender struct {
-	cfg      *config.Config
-	store    *common.Store
-	monitor  *monitor.Monitor
-	statusCh chan common.ServerStatus
+	cfg        *config.Config
+	store      *common.Store
+	monitor    *monitor.Monitor
+	statusCh   chan common.ServerStatus
+	sendCount  int
+}
+
+const (
+	firstFastSendCount = 60
+	sendSlowFactor     = 5
+)
+
+// nextInterval 返回下一次上报间隔：前60次使用 -interval，之后使用 -interval 的 5 倍。
+func (s *Sender) nextInterval() time.Duration {
+	interval := s.cfg.Interval
+	if s.sendCount >= firstFastSendCount {
+		interval *= sendSlowFactor
+	}
+	return time.Duration(interval * float64(time.Second))
 }
 
 func NewSender(cfg *config.Config, store *common.Store, mon *monitor.Monitor) *Sender {
@@ -174,7 +189,7 @@ func (s *Sender) handleMonitorConfig(ctx context.Context, conn net.Conn) error {
 }
 
 func (s *Sender) sendStatusLoop(ctx context.Context, conn net.Conn) {
-	ticker := time.NewTicker(time.Duration(s.cfg.Interval) * time.Second)
+	ticker := time.NewTicker(s.nextInterval())
 	defer ticker.Stop()
 
 	for {
@@ -182,6 +197,9 @@ func (s *Sender) sendStatusLoop(ctx context.Context, conn net.Conn) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			s.sendCount++
+			ticker.Reset(s.nextInterval())
+
 			status := s.buildStatus()
 			data, err := json.Marshal(status)
 			if err != nil {
