@@ -243,10 +243,9 @@ func (m *Monitor) monitorTCP(host string) (bool, int, int, int) {
 }
 
 func (m *Monitor) CheckNetwork(version int) bool {
-	host := "ipv4.google.com"
+	host := "captive.apple.com"
 	network := "tcp4"
 	if version == 6 {
-		host = "ipv6.google.com"
 		network = "tcp6"
 	}
 	// 强制指定 IP 协议栈（tcp4/tcp6），避免 net.Dial 对
