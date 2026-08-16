@@ -243,14 +243,16 @@ func (m *Monitor) monitorTCP(host string) (bool, int, int, int) {
 }
 
 func (m *Monitor) CheckNetwork(version int) bool {
-	host := "captive.apple.com"
+	// 直接使用 IP 字面量（阿里 DNS 任播地址 223.5.5.5 / 2400:3200::1）
+	// 作为探测目标，绕开域名解析不一致的问题（如 captive.apple.com 的
+	// AAAA 记录按地区/CDN 边缘时有时无，导致 v6 探测不可靠）。
+	host := "223.5.5.5"
 	network := "tcp4"
 	if version == 6 {
+		host = "2400:3200::1"
 		network = "tcp6"
 	}
-	// 强制指定 IP 协议栈（tcp4/tcp6），避免 net.Dial 对
-	// 同时存在 A/AAAA 记录的域名做 happy-eyeballs 回退到另一栈，
-	// 导致仅有单栈的机器被误判为双栈。
+	// 强制指定 IP 协议栈（tcp4/tcp6）探测，避免仅单栈可达的机器被误判。
 	conn, err := net.DialTimeout(network, net.JoinHostPort(host, "80"), 2*time.Second)
 	if err != nil { return false }
 	conn.Close()
